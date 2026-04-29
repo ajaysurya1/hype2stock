@@ -6,50 +6,68 @@ import pandas as pd
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
+import time
 
 load_dotenv()
 TMDB_KEY = os.getenv("TMDB_API_KEY", "f1714c0718b4754d6ad44c1c2976e8b3")
 BASE = "https://api.themoviedb.org/3"
 
-# Studio → TMDB company ID + stock ticker
+# Studio → TMDB company ID + stock ticker (verified tickers)
 STUDIOS = {
-    "Walt Disney":      {"tmdb_id": 2,    "ticker": "DIS",   "logo": "🏰"},
-    "Warner Bros.":     {"tmdb_id": 174,  "ticker": "WBD",   "logo": "🎬"},
-    "Netflix":          {"tmdb_id": 213,  "ticker": "NFLX",  "logo": "🔴"},
-    "Paramount":        {"tmdb_id": 4,    "ticker": "PARA",  "logo": "⛰️"},
-    "Sony Pictures":    {"tmdb_id": 34,   "ticker": "SONY",  "logo": "🎮"},
-    "Universal":        {"tmdb_id": 33,   "ticker": "CMCSA", "logo": "🌍"},
-    "Lionsgate":        {"tmdb_id": 1632, "ticker": "LGF",   "logo": "🦁"},
-    "Amazon Studios":   {"tmdb_id": 20580,"ticker": "AMZN",  "logo": "📦"},
+    "Walt Disney":      {"tmdb_id": 2,     "ticker": "DIS",   "logo": "🏰"},
+    "Warner Bros.":     {"tmdb_id": 174,   "ticker": "WBD",   "logo": "🎬"},
+    "Netflix":          {"tmdb_id": 213,   "ticker": "NFLX",  "logo": "🔴"},
+    "Sony Pictures":    {"tmdb_id": 34,    "ticker": "SONY",  "logo": "🎮"},
+    "Universal":        {"tmdb_id": 33,    "ticker": "CMCSA", "logo": "🌍"},
+    "Amazon Studios":   {"tmdb_id": 20580, "ticker": "AMZN",  "logo": "📦"},
+    "Paramount":        {"tmdb_id": 4,     "ticker": "PARAA", "logo": "⛰️"},
+    "Lionsgate":        {"tmdb_id": 1632,  "ticker": "LION",  "logo": "🦁"},
 }
 
 
-def fetch_studio_movies(tmdb_id: int, count: int = 3) -> list[dict]:
+def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
     """Fetch the most recent movies for a studio from TMDB."""
     url = f"{BASE}/discover/movie"
+    today = datetime.now().strftime("%Y-%m-%d")
+    year_ago = (datetime.now() - timedelta(days=548)).strftime("%Y-%m-%d")  # ~18 months back
     params = {
         "api_key": TMDB_KEY,
         "with_companies": tmdb_id,
-        "sort_by": "primary_release_date.desc",
-        "primary_release_date.lte": datetime.now().strftime("%Y-%m-%d"),
-        "primary_release_date.gte": (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d"),
-        "vote_count.gte": 10,
+        "sort_by": "popularity.desc",
+        "primary_release_date.lte": today,
+        "primary_release_date.gte": year_ago,
+        "vote_count.gte": 5,
         "page": 1,
     }
     try:
-        r = requests.get(url, params=params, timeout=10)
+        r = requests.get(url, params=params, timeout=15)
         r.raise_for_status()
         results = r.json().get("results", [])[:count]
         movies = []
         for m in results:
+            # Calculate days since release for velocity calc
+            rel_date = m.get("release_date", "")
+            days_out = 1
+            if rel_date:
+                try:
+                    rd = datetime.strptime(rel_date, "%Y-%m-%d")
+                    days_out = max((datetime.now() - rd).days, 1)
+                except ValueError:
+                    days_out = 90
+
+            vote_count = m.get("vote_count", 0)
+            vote_velocity = round(vote_count / days_out, 2)  # votes per day
+
             movies.append({
                 "title": m.get("title", "Unknown"),
                 "rating": m.get("vote_average", 0),
-                "votes": m.get("vote_count", 0),
+                "votes": vote_count,
                 "popularity": m.get("popularity", 0),
-                "release_date": m.get("release_date", "N/A"),
-                "poster": f"https://image.tmdb.org/t/p/w200{m['poster_path']}" if m.get("poster_path") else None,
-                "overview": m.get("overview", ""),
+                "release_date": rel_date or "N/A",
+                "poster": f"https://image.tmdb.org/t/p/w300{m['poster_path']}" if m.get("poster_path") else None,
+                "overview": m.get("overview", "")[:200],
+                "days_since_release": days_out,
+                "vote_velocity": vote_velocity,
             })
         return movies
     except Exception as e:
@@ -58,25 +76,41 @@ def fetch_studio_movies(tmdb_id: int, count: int = 3) -> list[dict]:
 
 
 def calc_hype_score(movies: list[dict]) -> dict:
-    """Calculate content momentum score from a list of movies."""
+    """
+    Calculate content momentum score from a list of movies.
+
+    Formula:
+      - Rating Component (35%): avg IMDb rating normalized to 0-35
+      - Popularity Component (30%): avg TMDB popularity normalized to 0-30
+      - Vote Velocity Component (20%): avg votes/day normalized to 0-20
+      - Recency Bonus (15%): boost for movies released in last 60 days
+    """
     if not movies:
-        return {"score": 0, "avg_rating": 0, "avg_popularity": 0, "vote_velocity": 0, "grade": "N/A"}
+        return {"score": 0, "avg_rating": 0, "avg_popularity": 0,
+                "vote_velocity": 0, "grade": "N/A", "breakdown": {}}
 
     avg_rating = sum(m["rating"] for m in movies) / len(movies)
     avg_pop = sum(m["popularity"] for m in movies) / len(movies)
-    vote_vel = sum(m["votes"] for m in movies) / len(movies)
+    avg_vel = sum(m["vote_velocity"] for m in movies) / len(movies)
 
-    # Normalize: rating /10 * 40 + popularity capped * 30 + vote velocity capped * 30
-    r_norm = (avg_rating / 10) * 40
-    p_norm = min(avg_pop / 100, 1) * 30
-    v_norm = min(vote_vel / 5000, 1) * 30
-    score = round(r_norm + p_norm + v_norm, 1)
+    # Count recent releases (< 60 days)
+    recent_count = sum(1 for m in movies if m["days_since_release"] < 60)
+    recency_ratio = recent_count / len(movies)
 
-    if score >= 75:
+    # Component scores
+    rating_score = (avg_rating / 10) * 35
+    pop_score = min(avg_pop / 80, 1) * 30        # Cap at 80 popularity
+    vel_score = min(avg_vel / 50, 1) * 20         # Cap at 50 votes/day
+    recency_score = recency_ratio * 15
+
+    score = round(rating_score + pop_score + vel_score + recency_score, 1)
+    score = min(score, 100)
+
+    if score >= 70:
         grade = "🟢 Strong Bullish"
-    elif score >= 55:
+    elif score >= 50:
         grade = "🟡 Moderate Bullish"
-    elif score >= 35:
+    elif score >= 30:
         grade = "🟠 Neutral"
     else:
         grade = "🔴 Bearish Warning"
@@ -85,63 +119,93 @@ def calc_hype_score(movies: list[dict]) -> dict:
         "score": score,
         "avg_rating": round(avg_rating, 2),
         "avg_popularity": round(avg_pop, 1),
-        "vote_velocity": round(vote_vel, 0),
+        "vote_velocity": round(avg_vel, 2),
         "grade": grade,
+        "breakdown": {
+            "rating": round(rating_score, 1),
+            "popularity": round(pop_score, 1),
+            "velocity": round(vel_score, 1),
+            "recency": round(recency_score, 1),
+        }
     }
 
 
 def fetch_stock_data(ticker: str, period: str = "1mo") -> dict:
-    """Fetch stock price data via yfinance."""
-    try:
-        tk = yf.Ticker(ticker)
-        hist = tk.history(period=period)
-        if hist.empty:
-            return {"price": 0, "change_pct": 0, "hist": pd.DataFrame()}
-        current = hist["Close"].iloc[-1]
-        prev = hist["Close"].iloc[0]
-        change = ((current - prev) / prev) * 100
-        return {
-            "price": round(current, 2),
-            "change_pct": round(change, 2),
-            "hist": hist,
-        }
-    except Exception as e:
-        print(f"Stock error for {ticker}: {e}")
-        return {"price": 0, "change_pct": 0, "hist": pd.DataFrame()}
+    """Fetch stock price data via yfinance with retry."""
+    for attempt in range(2):
+        try:
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period=period)
+            if hist.empty:
+                if attempt == 0:
+                    time.sleep(0.5)
+                    continue
+                return {"price": 0, "change_pct": 0, "hist": pd.DataFrame(), "error": True}
+            current = hist["Close"].iloc[-1]
+            prev = hist["Close"].iloc[0]
+            change = ((current - prev) / prev) * 100
+            return {
+                "price": round(float(current), 2),
+                "change_pct": round(float(change), 2),
+                "hist": hist,
+                "error": False,
+            }
+        except Exception as e:
+            print(f"Stock error for {ticker} (attempt {attempt+1}): {e}")
+            if attempt == 0:
+                time.sleep(0.5)
+    return {"price": 0, "change_pct": 0, "hist": pd.DataFrame(), "error": True}
 
 
 def generate_signal(hype: dict, stock: dict) -> dict:
-    """Compare hype score vs stock performance → trading signal."""
+    """
+    Compare hype score vs stock performance → trading signal.
+
+    Logic:
+    - High hype (>=60) + stock flat/down (<3%) → BUY (market hasn't priced in the momentum)
+    - High hype (>=60) + stock already up (>=3%) → HOLD (momentum reflected)
+    - Medium hype (35-60) + stock down → WATCH (could recover)
+    - Low hype (<35) → CAUTION (content pipeline weak)
+    """
     score = hype["score"]
     change = stock["change_pct"]
 
-    if score >= 65 and change < 5:
+    if score >= 60 and change < 3:
         signal = "📈 BUY SIGNAL"
-        reason = "High content momentum but stock hasn't priced it in yet."
+        reason = "Strong content momentum not yet reflected in stock price — potential upside."
         color = "#00e676"
-    elif score >= 65 and change >= 5:
+        strength = "Strong"
+    elif score >= 60 and change >= 3:
         signal = "✅ HOLD"
-        reason = "High hype already reflected in stock price."
+        reason = "High hype already being priced in — hold and monitor earnings."
         color = "#29b6f6"
-    elif score < 35:
-        signal = "⚠️ CAUTION"
-        reason = "Low content momentum – potential downside risk."
-        color = "#ff5252"
-    else:
+        strength = "Moderate"
+    elif 35 <= score < 60 and change < 0:
         signal = "👀 WATCH"
-        reason = "Moderate hype – monitor for catalysts."
+        reason = "Moderate content pipeline + stock dipping — potential recovery play."
         color = "#ffd740"
+        strength = "Speculative"
+    elif 35 <= score < 60:
+        signal = "➡️ NEUTRAL"
+        reason = "Average content momentum — no strong directional signal."
+        color = "#78909c"
+        strength = "Weak"
+    else:
+        signal = "⚠️ CAUTION"
+        reason = "Weak content pipeline — cultural headwind may pressure stock."
+        color = "#ff5252"
+        strength = "Strong"
 
-    return {"signal": signal, "reason": reason, "color": color}
+    return {"signal": signal, "reason": reason, "color": color, "strength": strength}
 
 
-def get_full_dashboard() -> list[dict]:
+def get_full_dashboard(period: str = "1mo", movie_count: int = 5) -> list[dict]:
     """Build complete dashboard data for all studios."""
     results = []
     for name, info in STUDIOS.items():
-        movies = fetch_studio_movies(info["tmdb_id"])
+        movies = fetch_studio_movies(info["tmdb_id"], movie_count)
         hype = calc_hype_score(movies)
-        stock = fetch_stock_data(info["ticker"])
+        stock = fetch_stock_data(info["ticker"], period)
         sig = generate_signal(hype, stock)
         results.append({
             "studio": name,
