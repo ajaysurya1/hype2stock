@@ -186,7 +186,7 @@ with st.expander("💡 How does movie hype predict stock movement?", expanded=Fa
 
 
 # ── Load Data ────────────────────────────────────────────────
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def load_data(period, count):
     return get_full_dashboard(period, count)
 

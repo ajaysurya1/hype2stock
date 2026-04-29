@@ -130,31 +130,92 @@ def calc_hype_score(movies: list[dict]) -> dict:
     }
 
 
-def fetch_stock_data(ticker: str, period: str = "1mo") -> dict:
-    """Fetch stock price data via yfinance with retry."""
-    for attempt in range(2):
+STOCK_KEY = os.getenv("STOCK_API_KEY", "d7oosi1r01qsb7bfn2pgd7oosi1r01qsb7bfn2q0")
+
+class StockMarket:
+    """Industrial-grade stock data aggregator with real-time API and resilient fallbacks."""
+    
+    @staticmethod
+    def get_realtime_quote(ticker: str) -> dict:
+        """Fetch real-time price using the provided industrial API (Finnhub-style)."""
+        # Using the provided key as a Finnhub-style token
+        # If it's a Finnhub key, we use it directly. 
+        # The key provided is 40 chars, possibly two 20-char keys concatenated.
+        # We'll try the full key first.
+        token = STOCK_KEY
+        url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={token}"
+        
+        try:
+            r = requests.get(url, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("c"): # 'c' is current price in Finnhub
+                    return {
+                        "price": round(float(data["c"]), 2),
+                        "change_pct": round(float(data.get("dp", 0)), 2),
+                        "source": "Finnhub RT",
+                        "error": False
+                    }
+            
+            # If full key fails, try first 20 chars (standard Finnhub length)
+            if len(token) > 20:
+                url_alt = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={token[:20]}"
+                r = requests.get(url_alt, timeout=5)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("c"):
+                        return {
+                            "price": round(float(data["c"]), 2),
+                            "change_pct": round(float(data.get("dp", 0)), 2),
+                            "source": "Finnhub RT",
+                            "error": False
+                        }
+        except Exception as e:
+            print(f"Industrial API error for {ticker}: {e}")
+        
+        return {"error": True}
+
+    @classmethod
+    def fetch_data(cls, ticker: str, period: str = "1mo") -> dict:
+        """Complete industrial-grade fetch: Real-time price + Historical history."""
+        # 1. Try Real-time API
+        rt_data = cls.get_realtime_quote(ticker)
+        
+        # 2. Fetch History (yfinance remains best for free historical sparklines)
         try:
             tk = yf.Ticker(ticker)
             hist = tk.history(period=period)
+            
             if hist.empty:
-                if attempt == 0:
-                    time.sleep(0.5)
-                    continue
-                return {"price": 0, "change_pct": 0, "hist": pd.DataFrame(), "error": True}
-            current = hist["Close"].iloc[-1]
-            prev = hist["Close"].iloc[0]
-            change = ((current - prev) / prev) * 100
-            return {
-                "price": round(float(current), 2),
-                "change_pct": round(float(change), 2),
-                "hist": hist,
-                "error": False,
-            }
+                # Fallback ticker check for complex symbols
+                if "-" in ticker:
+                    tk = yf.Ticker(ticker.replace("-", "."))
+                    hist = tk.history(period=period)
+            
+            if not hist.empty:
+                current_price = rt_data["price"] if not rt_data["error"] else hist["Close"].iloc[-1]
+                
+                # Calculate change based on real-time vs yesterday's close or period start
+                # For sparklines, we use the hist, but for the 'Price' shown, we use RT if available
+                prev_price = hist["Close"].iloc[0]
+                change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
+                
+                return {
+                    "price": round(float(current_price), 2),
+                    "change_pct": round(float(change_pct), 2),
+                    "hist": hist,
+                    "error": False,
+                    "source": "Industrial Hybrid" if not rt_data["error"] else "Fallback"
+                }
         except Exception as e:
-            print(f"Stock error for {ticker} (attempt {attempt+1}): {e}")
-            if attempt == 0:
-                time.sleep(0.5)
-    return {"price": 0, "change_pct": 0, "hist": pd.DataFrame(), "error": True}
+            print(f"Resilient fetch error for {ticker}: {e}")
+            
+        return {"price": 0, "change_pct": 0, "hist": pd.DataFrame(), "error": True}
+
+
+def fetch_stock_data(ticker: str, period: str = "1mo") -> dict:
+    """Wrapper to maintain compatibility with app.py while using industrial engine."""
+    return StockMarket.fetch_data(ticker, period)
 
 
 def generate_signal(hype: dict, stock: dict) -> dict:
