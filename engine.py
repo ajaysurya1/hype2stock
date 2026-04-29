@@ -145,33 +145,47 @@ class StockMarket:
 
     @classmethod
     def fetch_data(cls, ticker: str, period: str = "1mo") -> dict:
+        """Industrial-grade fetch with aggressive MultiIndex flattening and resiliency."""
         rt_data = cls.get_realtime_quote(ticker)
         
         try:
-            # Use yf.download for more reliable sparklines in 0.2.x
-            hist = yf.download(ticker, period=period, progress=False, interval="1d")
+            # Use Ticker.history as it's more stable for single symbols in 0.2.x
+            tk = yf.Ticker(ticker)
+            hist = tk.history(period=period)
             
             # Robust Ticker Fallback
             if hist.empty:
                 alt = ticker.replace("-", ".") if "-" in ticker else ticker.replace(".", "-")
-                hist = yf.download(alt, period=period, progress=False, interval="1d")
+                tk = yf.Ticker(alt)
+                hist = tk.history(period=period)
 
             if not hist.empty:
-                # yfinance 0.2.x returns multi-index columns sometimes or simple index
-                # We need to handle both
-                close_series = hist["Close"]
-                if isinstance(close_series, pd.DataFrame):
-                    close_series = close_series.iloc[:, 0]
+                # AGGRESSIVE FLATTENING: Fix for yfinance 0.2.x MultiIndex columns
+                if isinstance(hist.columns, pd.MultiIndex):
+                    hist.columns = hist.columns.get_level_values(0)
                 
-                current_price = rt_data["price"] if (not rt_data["error"] and rt_data["price"] > 0) else close_series.iloc[-1]
-                prev_price = close_series.iloc[0]
-                change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
+                # Double-check 'Close' existence after flattening
+                if "Close" not in hist.columns:
+                    # Try to find a column that looks like Close
+                    for col in hist.columns:
+                        if "close" in str(col).lower():
+                            hist["Close"] = hist[col]
+                            break
                 
-                # Ensure 'Close' is a Series even if yf returns MultiIndex
+                # Final safeguard: ensure 'Close' is a Series
                 if isinstance(hist["Close"], pd.DataFrame):
-                    hist_cleaned = hist.copy()
-                    hist_cleaned["Close"] = hist["Close"].iloc[:, 0]
-                    hist = hist_cleaned
+                    hist["Close"] = hist["Close"].iloc[:, 0]
+
+                # Price Selection: Prioritize hist data if RT looks like sandbox mock data
+                hist_price = float(hist["Close"].iloc[-1])
+                current_price = rt_data["price"] if (not rt_data["error"] and rt_data["price"] > 0) else hist_price
+                
+                # If RT price is suspicious (deviates > 50% from hist), use hist
+                if not rt_data["error"] and abs(current_price - hist_price) / max(hist_price, 1) > 0.5:
+                    current_price = hist_price
+                
+                prev_price = float(hist["Close"].iloc[0])
+                change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
                 
                 return {
                     "price": round(float(current_price), 2),

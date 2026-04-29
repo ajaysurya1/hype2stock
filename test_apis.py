@@ -51,7 +51,7 @@ def run_diagnostic():
                         print("   --> LGF.A WORKS!")
             else:
                 print(f" [STOCK] OK: ${stock['price']} ({stock['change_pct']}%) via {stock.get('source')}")
-                print(f" [CHART] OK: {len(stock['hist'])} history points")
+                print(f" [CHART] OK: {len(stock['hist'])} history points. Columns: {list(stock['hist'].columns)}")
         except Exception as e:
             print(f" [STOCK] ERROR: {e}")
 
