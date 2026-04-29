@@ -287,43 +287,50 @@ for i in range(0, len(data), 2):
             for m in d["movies"][:4]:
                 movie_pills += f'<span class="movie-pill">🎥 {m["title"][:28]} · ⭐{m["rating"]}</span> '
 
-            st.markdown(f"""
-            <div class="signal-card">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                    <div>
-                        <span style="font-size:1.8rem;">{d["logo"]}</span>
-                        <span style="font-size:1.4rem;font-weight:700;color:#f0f4ff;margin-left:8px;">{d["studio"]}</span>
-                        <span class="ticker-badge" style="margin-left:8px;">${d["ticker"]}</span>
-                    </div>
-                    <span class="signal-badge" style="background:{sig_color}30;border:1px solid {sig_color};">{d["signal"]["signal"]}</span>
-                </div>
-                <div style="display:flex;gap:28px;margin-bottom:8px;">
-                    <div>
-                        <div class="metric-label">Hype Score</div>
-                        <div class="score-big">{d["hype"]["score"]}</div>
-                    </div>
-                    <div>
-                        <div class="metric-label">Stock Price</div>
-                        <div class="metric-value">{stock_display}</div>
-                    </div>
-                    <div>
-                        <div class="metric-label">Period Δ</div>
-                        <div class="metric-value {stock_class}">{change_display}</div>
-                    </div>
-                    <div>
-                        <div class="metric-label">Avg Rating</div>
-                        <div class="metric-value">⭐ {d["hype"]["avg_rating"]}</div>
-                    </div>
-                    <div>
-                        <div class="metric-label">Votes/Day</div>
-                        <div class="metric-value">⚡ {d["hype"]["vote_velocity"]}</div>
-                    </div>
-                </div>
-                {breakdown_html}
-                <div style="margin:8px 0;">{movie_pills}</div>
-                <div style="color:#b0bfda;font-size:0.85rem;font-style:italic;">💡 {d["signal"]["reason"]}</div>
-            </div>
-            """, unsafe_allow_html=True)
+            # Convert hex signal color to rgba for transparency
+            r_sig, g_sig, b_sig = int(sig_color[1:3], 16), int(sig_color[3:5], 16), int(sig_color[5:7], 16)
+            
+            # Use conditional strings to avoid empty divs taking up space
+            breakdown_section = f'<div style="margin:12px 0;">{breakdown_html}</div>' if breakdown_html else ""
+            movie_section = f'<div style="margin:12px 0;">{movie_pills}</div>' if movie_pills else ""
+
+            # Use a non-indented string to prevent markdown from treating it as a code block
+            card_html = f"""<div class="signal-card">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+    <div>
+        <span style="font-size:1.8rem;">{d["logo"]}</span>
+        <span style="font-size:1.4rem;font-weight:700;color:#f0f4ff;margin-left:8px;">{d["studio"]}</span>
+        <span class="ticker-badge" style="margin-left:8px;">${d["ticker"]}</span>
+    </div>
+    <span class="signal-badge" style="background:rgba({r_sig},{g_sig},{b_sig},0.2);border:1px solid {sig_color};">{d["signal"]["signal"]}</span>
+</div>
+<div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap;">
+    <div>
+        <div class="metric-label">Hype Score</div>
+        <div class="score-big">{d["hype"]["score"]}</div>
+    </div>
+    <div>
+        <div class="metric-label">Stock Price</div>
+        <div class="metric-value">{stock_display}</div>
+    </div>
+    <div>
+        <div class="metric-label">Period Δ</div>
+        <div class="metric-value {stock_class}">{change_display}</div>
+    </div>
+    <div>
+        <div class="metric-label">Avg Rating</div>
+        <div class="metric-value">⭐ {d["hype"]["avg_rating"]}</div>
+    </div>
+    <div>
+        <div class="metric-label">Votes/Day</div>
+        <div class="metric-value">⚡ {d["hype"]["vote_velocity"]}</div>
+    </div>
+</div>
+{breakdown_section}
+{movie_section}
+<div style="color:#b0bfda;font-size:0.85rem;font-style:italic;margin-top:8px;">💡 {d["signal"]["reason"]}</div>
+</div>"""
+            st.markdown(card_html, unsafe_allow_html=True)
 
             # Mini stock chart
             if not d["stock"]["hist"].empty:
