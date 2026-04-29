@@ -184,7 +184,11 @@ class StockMarket:
                     current_price = hist_price
                 
                 prev_price = float(hist["Close"].iloc[0])
-                change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
+                # If RT change is 0 (likely sandbox), calculate from history
+                if not rt_data["error"] and rt_data["change_pct"] != 0:
+                    change_pct = rt_data["change_pct"]
+                else:
+                    change_pct = ((current_price - prev_price) / prev_price) * 100
                 
                 # ML TREND FORECAST (Projecting next 5 days)
                 y = hist["Close"].values
@@ -209,11 +213,16 @@ class StockMarket:
 
         # 3. SYNTHETIC FALLBACK (Industrial Reliability)
         # If we reach here, we are likely rate-limited or the ticker is broken.
-        # We show synthetic data so the UI remains professional.
-        base_price = rt_data["price"] if not rt_data["error"] else 50.0
+        base_price = rt_data["price"] if (not rt_data["error"] and rt_data["price"] > 0) else 50.0
         synth_hist = cls.generate_synthetic_data(ticker, base_price)
+        
+        # Calculate a realistic mock change
+        first = synth_hist["Close"].iloc[0]
+        last = synth_hist["Close"].iloc[-1]
+        synth_change = ((last - first) / first) * 100
+
         return {
-            "price": round(base_price, 2), "change_pct": 0.0,
+            "price": round(base_price, 2), "change_pct": round(float(synth_change), 2),
             "hist": synth_hist, "error": False, "source": "Simulated (API Blocked)"
         }
 
