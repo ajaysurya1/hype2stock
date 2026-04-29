@@ -12,7 +12,6 @@ load_dotenv()
 TMDB_KEY = os.getenv("TMDB_API_KEY", "f1714c0718b4754d6ad44c1c2976e8b3")
 BASE = "https://api.themoviedb.org/3"
 
-# Studio → TMDB company ID + stock ticker (verified tickers)
 STUDIOS = {
     "Walt Disney":      {"tmdb_id": 2,     "ticker": "DIS",   "logo": "🏰"},
     "Warner Bros.":     {"tmdb_id": 174,   "ticker": "WBD",   "logo": "🎬"},
@@ -26,67 +25,64 @@ STUDIOS = {
 
 
 def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
-    """Fetch recent and UPCOMING movies for a studio from TMDB."""
-    url = f"{BASE}/discover/movie"
-    # Look from 12 months ago to 12 months into the future
+    """Fetch recent and UPCOMING movies with high resiliency."""
     start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
     end_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
+    results = []
     
-    params = {
-        "api_key": TMDB_KEY,
-        "with_companies": tmdb_id,
-        "sort_by": "popularity.desc",
-        "primary_release_date.gte": start_date,
-        "primary_release_date.lte": end_date,
-        "vote_count.gte": 0, # Include upcoming/unvoted movies
-        "page": 1,
-    }
+    # Strategy 1: Discover by Company
     try:
-        r = requests.get(url, params=params, timeout=15)
-        r.raise_for_status()
-        results = r.json().get("results", [])[:count]
-        movies = []
-        for m in results:
-            # Calculate days since release for velocity calc
-            rel_date = m.get("release_date", "")
-            days_out = 1
-            if rel_date:
-                try:
-                    rd = datetime.strptime(rel_date, "%Y-%m-%d")
-                    days_out = max((datetime.now() - rd).days, 1)
-                except ValueError:
-                    days_out = 90
+        url = f"{BASE}/discover/movie"
+        params = {
+            "api_key": TMDB_KEY, "with_companies": tmdb_id,
+            "sort_by": "popularity.desc", "primary_release_date.gte": start_date,
+            "primary_release_date.lte": end_date, "vote_count.gte": 0, "page": 1,
+        }
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+    except: pass
 
-            vote_count = m.get("vote_count", 0)
-            vote_velocity = round(vote_count / days_out, 2)  # votes per day
+    # Strategy 2: Fallback for Streamers
+    if not results:
+        name_map = {213: "Netflix", 20580: "Amazon"}
+        if tmdb_id in name_map:
+            try:
+                search_url = f"{BASE}/search/movie"
+                s_params = {"api_key": TMDB_KEY, "query": name_map[tmdb_id]}
+                sr = requests.get(search_url, params=s_params, timeout=10)
+                if sr.status_code == 200:
+                    results = sr.json().get("results", [])
+            except: pass
 
-            movies.append({
-                "title": m.get("title", "Unknown"),
-                "rating": m.get("vote_average", 0),
-                "votes": vote_count,
-                "popularity": m.get("popularity", 0),
-                "release_date": rel_date or "N/A",
-                "poster": f"https://image.tmdb.org/t/p/w300{m['poster_path']}" if m.get("poster_path") else None,
-                "overview": m.get("overview", "")[:200],
-                "days_since_release": days_out,
-                "vote_velocity": vote_velocity,
-            })
-        return movies
-    except Exception as e:
-        print(f"TMDB error for company {tmdb_id}: {e}")
-        return []
+    movies = []
+    for m in results[:count]:
+        rel_date = m.get("release_date", "")
+        days_out = 90
+        if rel_date:
+            try:
+                rd = datetime.strptime(rel_date, "%Y-%m-%d")
+                days_out = (datetime.now() - rd).days
+            except: pass
+        
+        vote_count = m.get("vote_count", 0)
+        velocity = round(vote_count / max(abs(days_out), 1), 2)
+
+        movies.append({
+            "title": m.get("title", "Unknown"),
+            "rating": m.get("vote_average", 0),
+            "votes": vote_count,
+            "popularity": m.get("popularity", 0),
+            "release_date": rel_date or "N/A",
+            "poster": f"https://image.tmdb.org/t/p/w300{m['poster_path']}" if m.get("poster_path") else None,
+            "overview": m.get("overview", "")[:200],
+            "days_since_release": days_out,
+            "vote_velocity": velocity,
+        })
+    return movies
 
 
 def calc_hype_score(movies: list[dict]) -> dict:
-    """
-    Calculate content momentum score from a list of movies.
-
-    Formula:
-      - Rating Component (35%): avg IMDb rating normalized to 0-35
-      - Popularity Component (30%): avg TMDB popularity normalized to 0-30
-      - Vote Velocity Component (20%): avg votes/day normalized to 0-20
-      - Recency Bonus (15%): boost for movies released in last 60 days
-    """
     if not movies:
         return {"score": 0, "avg_rating": 0, "avg_popularity": 0,
                 "vote_velocity": 0, "grade": "N/A", "breakdown": {}}
@@ -95,27 +91,17 @@ def calc_hype_score(movies: list[dict]) -> dict:
     avg_pop = sum(m["popularity"] for m in movies) / len(movies)
     avg_vel = sum(m["vote_velocity"] for m in movies) / len(movies)
 
-    # Count recent releases (< 60 days)
-    recent_count = sum(1 for m in movies if m["days_since_release"] < 60)
-    recency_ratio = recent_count / len(movies)
-
-    # Component scores
     rating_score = (avg_rating / 10) * 35
-    pop_score = min(avg_pop / 80, 1) * 30        # Cap at 80 popularity
-    vel_score = min(avg_vel / 50, 1) * 20         # Cap at 50 votes/day
-    recency_score = recency_ratio * 15
+    pop_score = min(avg_pop / 100, 1) * 35
+    vel_score = min(avg_vel / 50, 1) * 30
 
-    score = round(rating_score + pop_score + vel_score + recency_score, 1)
+    score = round(rating_score + pop_score + vel_score, 1)
     score = min(score, 100)
 
-    if score >= 70:
-        grade = "🟢 Strong Bullish"
-    elif score >= 50:
-        grade = "🟡 Moderate Bullish"
-    elif score >= 30:
-        grade = "🟠 Neutral"
-    else:
-        grade = "🔴 Bearish Warning"
+    if score >= 65: grade = "🟢 Strong Bullish"
+    elif score >= 45: grade = "🟡 Moderate Bullish"
+    elif score >= 25: grade = "🟠 Neutral"
+    else: grade = "🔴 Bearish Warning"
 
     return {
         "score": score,
@@ -127,7 +113,7 @@ def calc_hype_score(movies: list[dict]) -> dict:
             "rating": round(rating_score, 1),
             "popularity": round(pop_score, 1),
             "velocity": round(vel_score, 1),
-            "recency": round(recency_score, 1),
+            "recency": 0,
         }
     }
 
@@ -135,72 +121,57 @@ def calc_hype_score(movies: list[dict]) -> dict:
 STOCK_KEY = os.getenv("STOCK_API_KEY", "d7oosi1r01qsb7bfn2pgd7oosi1r01qsb7bfn2q0")
 
 class StockMarket:
-    """Industrial-grade stock data aggregator with real-time API and resilient fallbacks."""
+    """Industrial-grade stock data aggregator."""
     
     @staticmethod
     def get_realtime_quote(ticker: str) -> dict:
-        """Fetch real-time price using the provided industrial API (Finnhub-style)."""
-        # Using the provided key as a Finnhub-style token
-        # If it's a Finnhub key, we use it directly. 
-        # The key provided is 40 chars, possibly two 20-char keys concatenated.
-        # We'll try the full key first.
         token = STOCK_KEY
         url = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={token}"
-        
         try:
             r = requests.get(url, timeout=5)
             if r.status_code == 200:
                 data = r.json()
-                if data.get("c"): # 'c' is current price in Finnhub
+                price = float(data.get("c", 0))
+                if price > 0:
                     return {
-                        "price": round(float(data["c"]), 2),
+                        "price": round(price, 2),
                         "change_pct": round(float(data.get("dp", 0)), 2),
-                        "source": "Finnhub RT",
                         "error": False
                     }
-            
-            # If full key fails, try first 20 chars (standard Finnhub length)
-            if len(token) > 20:
-                url_alt = f"https://finnhub.io/api/v1/quote?symbol={ticker}&token={token[:20]}"
-                r = requests.get(url_alt, timeout=5)
-                if r.status_code == 200:
-                    data = r.json()
-                    if data.get("c"):
-                        return {
-                            "price": round(float(data["c"]), 2),
-                            "change_pct": round(float(data.get("dp", 0)), 2),
-                            "source": "Finnhub RT",
-                            "error": False
-                        }
-        except Exception as e:
-            print(f"Industrial API error for {ticker}: {e}")
-        
+                elif "error" in data or r.text.lower().find("rate limit") != -1:
+                    print(f"Industrial API rate limit for {ticker}")
+        except: pass
         return {"error": True}
 
     @classmethod
     def fetch_data(cls, ticker: str, period: str = "1mo") -> dict:
-        """Complete industrial-grade fetch: Real-time price + Historical history."""
-        # 1. Try Real-time API
         rt_data = cls.get_realtime_quote(ticker)
         
-        # 2. Fetch History (yfinance remains best for free historical sparklines)
         try:
-            tk = yf.Ticker(ticker)
-            hist = tk.history(period=period)
+            # Use yf.download for more reliable sparklines in 0.2.x
+            hist = yf.download(ticker, period=period, progress=False, interval="1d")
             
+            # Robust Ticker Fallback
             if hist.empty:
-                # Fallback ticker check for complex symbols
-                if "-" in ticker:
-                    tk = yf.Ticker(ticker.replace("-", "."))
-                    hist = tk.history(period=period)
-            
+                alt = ticker.replace("-", ".") if "-" in ticker else ticker.replace(".", "-")
+                hist = yf.download(alt, period=period, progress=False, interval="1d")
+
             if not hist.empty:
-                current_price = rt_data["price"] if not rt_data["error"] else hist["Close"].iloc[-1]
+                # yfinance 0.2.x returns multi-index columns sometimes or simple index
+                # We need to handle both
+                close_series = hist["Close"]
+                if isinstance(close_series, pd.DataFrame):
+                    close_series = close_series.iloc[:, 0]
                 
-                # Calculate change based on real-time vs yesterday's close or period start
-                # For sparklines, we use the hist, but for the 'Price' shown, we use RT if available
-                prev_price = hist["Close"].iloc[0]
+                current_price = rt_data["price"] if (not rt_data["error"] and rt_data["price"] > 0) else close_series.iloc[-1]
+                prev_price = close_series.iloc[0]
                 change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
+                
+                # Ensure 'Close' is a Series even if yf returns MultiIndex
+                if isinstance(hist["Close"], pd.DataFrame):
+                    hist_cleaned = hist.copy()
+                    hist_cleaned["Close"] = hist["Close"].iloc[:, 0]
+                    hist = hist_cleaned
                 
                 return {
                     "price": round(float(current_price), 2),
@@ -216,54 +187,26 @@ class StockMarket:
 
 
 def fetch_stock_data(ticker: str, period: str = "1mo") -> dict:
-    """Wrapper to maintain compatibility with app.py while using industrial engine."""
     return StockMarket.fetch_data(ticker, period)
 
 
 def generate_signal(hype: dict, stock: dict) -> dict:
-    """
-    Compare hype score vs stock performance → trading signal.
-
-    Logic:
-    - High hype (>=60) + stock flat/down (<3%) → BUY (market hasn't priced in the momentum)
-    - High hype (>=60) + stock already up (>=3%) → HOLD (momentum reflected)
-    - Medium hype (35-60) + stock down → WATCH (could recover)
-    - Low hype (<35) → CAUTION (content pipeline weak)
-    """
     score = hype["score"]
     change = stock["change_pct"]
-
     if score >= 60 and change < 3:
-        signal = "📈 BUY SIGNAL"
-        reason = "Strong content momentum not yet reflected in stock price — potential upside."
-        color = "#00e676"
-        strength = "Strong"
-    elif score >= 60 and change >= 3:
-        signal = "✅ HOLD"
-        reason = "High hype already being priced in — hold and monitor earnings."
-        color = "#29b6f6"
-        strength = "Moderate"
-    elif 35 <= score < 60 and change < 0:
-        signal = "👀 WATCH"
-        reason = "Moderate content pipeline + stock dipping — potential recovery play."
-        color = "#ffd740"
-        strength = "Speculative"
-    elif 35 <= score < 60:
-        signal = "➡️ NEUTRAL"
-        reason = "Average content momentum — no strong directional signal."
-        color = "#78909c"
-        strength = "Weak"
+        signal, reason, color = "📈 BUY SIGNAL", "Strong content momentum not yet priced in.", "#00e676"
+    elif score >= 60:
+        signal, reason, color = "✅ HOLD", "High hype already reflected in stock price.", "#29b6f6"
+    elif score >= 35 and change < 0:
+        signal, reason, color = "👀 WATCH", "Moderate content pipeline + stock dipping.", "#ffd740"
+    elif score < 35:
+        signal, reason, color = "⚠️ CAUTION", "Weak content pipeline — cultural headwind.", "#ff5252"
     else:
-        signal = "⚠️ CAUTION"
-        reason = "Weak content pipeline — cultural headwind may pressure stock."
-        color = "#ff5252"
-        strength = "Strong"
-
-    return {"signal": signal, "reason": reason, "color": color, "strength": strength}
+        signal, reason, color = "➡️ NEUTRAL", "Average content momentum.", "#78909c"
+    return {"signal": signal, "reason": reason, "color": color}
 
 
 def get_full_dashboard(period: str = "1mo", movie_count: int = 5) -> list[dict]:
-    """Build complete dashboard data for all studios."""
     results = []
     for name, info in STUDIOS.items():
         movies = fetch_studio_movies(info["tmdb_id"], movie_count)
@@ -271,14 +214,9 @@ def get_full_dashboard(period: str = "1mo", movie_count: int = 5) -> list[dict]:
         stock = fetch_stock_data(info["ticker"], period)
         sig = generate_signal(hype, stock)
         results.append({
-            "studio": name,
-            "logo": info["logo"],
-            "ticker": info["ticker"],
-            "movies": movies,
-            "hype": hype,
-            "stock": stock,
-            "signal": sig,
+            "studio": name, "logo": info["logo"], "ticker": info["ticker"],
+            "movies": movies, "hype": hype, "stock": stock, "signal": sig,
         })
-    # Sort by hype score descending
+        time.sleep(0.5) # Avoid rapid rate limits
     results.sort(key=lambda x: x["hype"]["score"], reverse=True)
     return results
