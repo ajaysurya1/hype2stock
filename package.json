@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "node server.js",
-    "demo": "DEMO_MODE=true node server.js"
+    "demo": "cross-env DEMO_MODE=true node server.js"
   },
   "repository": {
     "type": "git",
@@ -24,5 +24,8 @@
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "cross-env": "^10.1.0"
   }
 }
