@@ -8,6 +8,7 @@ const cors = require('cors');
 const http = require('http');
 const { WebSocketServer } = require('ws');
 const { generateInsight } = require('./signalEngine');
+const { MOCK_DASHBOARD } = require('./mockData');
 
 const app = express();
 const server = http.createServer(app);
@@ -77,6 +78,11 @@ app.use((req, res, next) => {
 
 // --- Data Fetching Logic ---
 async function fetchUpstreamData() {
+  if (process.env.DEMO_MODE === 'true') {
+    MOCK_DASHBOARD.lastUpdated = new Date().toISOString();
+    return MOCK_DASHBOARD;
+  }
+
   try {
     const response = await fetch(UPSTREAM_URL);
     if (!response.ok) {
@@ -125,6 +131,14 @@ async function fetchUpstreamData() {
 }
 
 // --- Endpoints ---
+
+app.get('/api/ping', (req, res) => {
+  res.json({
+    ok: true,
+    mode: process.env.DEMO_MODE === 'true' ? "demo" : "live",
+    uptime: process.uptime()
+  });
+});
 
 app.get('/api/dashboard', async (req, res) => {
   const data = await fetchUpstreamData();

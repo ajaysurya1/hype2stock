@@ -4,7 +4,9 @@
   "description": "",
   "main": "signalEngine.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "node server.js",
+    "demo": "DEMO_MODE=true node server.js"
   },
   "repository": {
     "type": "git",
