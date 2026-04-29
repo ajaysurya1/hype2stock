@@ -340,15 +340,23 @@ for i in range(0, len(data), 2):
                 r, g, b = int(lc[1:3],16), int(lc[3:5],16), int(lc[5:7],16)
                 fig_mini.add_trace(go.Scatter(
                     x=hist.index, y=hist["Close"], mode="lines", fill="tozeroy",
-                    line=dict(color=lc, width=2),
-                    fillcolor=f"rgba({r},{g},{b},0.08)",
+                    line=dict(color=lc, width=2.5),
+                    fillcolor=f"rgba({r},{g},{b},0.1)",
                 ))
                 fig_mini.update_layout(
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=0, b=0), height=90,
+                    margin=dict(l=0, r=0, t=5, b=0), height=120,
                     xaxis=dict(visible=False), yaxis=dict(visible=False), showlegend=False,
                 )
                 st.plotly_chart(fig_mini, use_container_width=True, key=f"chart_{d['ticker']}")
+            else:
+                st.markdown(f"""
+                <div style="height:120px; display:flex; align-items:center; justify-content:center; 
+                            background:rgba(255,255,255,0.02); border-radius:8px; border:1px dashed rgba(255,255,255,0.1);
+                            color:#6b7ba0; font-size:0.8rem;">
+                    📈 Stock data currently unavailable for {d['ticker']}
+                </div>
+                """, unsafe_allow_html=True)
 
 
 # ── Hype vs Stock Scatter ────────────────────────────────────

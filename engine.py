@@ -20,8 +20,8 @@ STUDIOS = {
     "Sony Pictures":    {"tmdb_id": 34,    "ticker": "SONY",  "logo": "🎮"},
     "Universal":        {"tmdb_id": 33,    "ticker": "CMCSA", "logo": "🌍"},
     "Amazon Studios":   {"tmdb_id": 20580, "ticker": "AMZN",  "logo": "📦"},
-    "Paramount":        {"tmdb_id": 4,     "ticker": "PARAA", "logo": "⛰️"},
-    "Lionsgate":        {"tmdb_id": 1632,  "ticker": "LION",  "logo": "🦁"},
+    "Paramount":        {"tmdb_id": 4,     "ticker": "PARA",  "logo": "⛰️"},
+    "Lionsgate":        {"tmdb_id": 1632,  "ticker": "LGF-A", "logo": "🦁"},
 }
 
 
