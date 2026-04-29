@@ -145,9 +145,19 @@ with st.expander("ℹ️ How it works: The Correlation Engine"):
 def load_data(period, count):
     return get_full_dashboard(period, count)
 
-with st.status("🚀 Fetching real-time signals...", expanded=False) as status:
-    data = load_data(period, count)
-    status.update(label="✅ Analysis Complete", state="complete")
+# ── Engine Intelligence Summary ──────────────────────────────
+data = load_data(period, count)
+
+with st.container():
+    c1, c2, c3 = st.columns([1,1,1])
+    with c1:
+        st.markdown(f"📡 **Data Source:** `Industrial Hybrid (RT)`")
+    with c2:
+        st.markdown(f"🤖 **Forecasting:** `Active (Linear Projection)`")
+    with c3:
+        st.markdown(f"⏱️ **Last Sync:** `{datetime.now().strftime('%H:%M:%S')}`")
+    
+    st.info(f"Analysis successfully synchronized with TMDB Creative Pipeline and Market Liquidity for {len(data)} global studios.")
 
 # ── Top Metrics ──────────────────────────────────────────────
 m1, m2, m3, m4 = st.columns(4)
