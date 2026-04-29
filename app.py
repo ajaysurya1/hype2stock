@@ -254,26 +254,34 @@ for i in range(0, len(data), 2):
             stock_display = f"${d['stock']['price']}" if d["stock"]["price"] > 0 else "N/A"
             change_display = f"{stock_arrow} {d['stock']['change_pct']}%" if d["stock"]["price"] > 0 else "—"
 
-            # Score breakdown bar
+            # Score breakdown bar — pre-compute rounded values
             bd = d["hype"].get("breakdown", {})
             breakdown_html = ""
             if bd:
                 total = max(d["hype"]["score"], 1)
-                breakdown_html = f"""
-                <div style="margin:8px 0 4px;">
-                    <div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;">
-                        <div style="width:{bd.get('rating',0)/total*100}%;background:#7b2ff7;" title="Rating"></div>
-                        <div style="width:{bd.get('popularity',0)/total*100}%;background:#00d2ff;" title="Popularity"></div>
-                        <div style="width:{bd.get('velocity',0)/total*100}%;background:#ffd740;" title="Velocity"></div>
-                        <div style="width:{bd.get('recency',0)/total*100}%;background:#ff6b9d;" title="Recency"></div>
-                    </div>
-                    <div style="display:flex;gap:12px;margin-top:4px;font-size:0.65rem;color:#8892b0;">
-                        <span>🟣 Rating {bd.get('rating',0)}</span>
-                        <span>🔵 Pop {bd.get('popularity',0)}</span>
-                        <span>🟡 Vel {bd.get('velocity',0)}</span>
-                        <span>🩷 New {bd.get('recency',0)}</span>
-                    </div>
-                </div>"""
+                w_rat = round(bd.get('rating', 0) / total * 100)
+                w_pop = round(bd.get('popularity', 0) / total * 100)
+                w_vel = round(bd.get('velocity', 0) / total * 100)
+                w_rec = round(bd.get('recency', 0) / total * 100)
+                v_rat = bd.get('rating', 0)
+                v_pop = bd.get('popularity', 0)
+                v_vel = bd.get('velocity', 0)
+                v_rec = bd.get('recency', 0)
+                breakdown_html = (
+                    '<div style="margin:8px 0 4px;">'
+                    '<div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;">'
+                    f'<div style="width:{w_rat}%;background:#7b2ff7;"></div>'
+                    f'<div style="width:{w_pop}%;background:#00d2ff;"></div>'
+                    f'<div style="width:{w_vel}%;background:#ffd740;"></div>'
+                    f'<div style="width:{w_rec}%;background:#ff6b9d;"></div>'
+                    '</div>'
+                    '<div style="display:flex;gap:12px;margin-top:4px;font-size:0.7rem;color:#9faacc;">'
+                    f'<span><span style="color:#7b2ff7;">&#9679;</span> Rating {v_rat}</span>'
+                    f'<span><span style="color:#00d2ff;">&#9679;</span> Pop {v_pop}</span>'
+                    f'<span><span style="color:#ffd740;">&#9679;</span> Vel {v_vel}</span>'
+                    f'<span><span style="color:#ff6b9d;">&#9679;</span> New {v_rec}</span>'
+                    '</div></div>'
+                )
 
             movie_pills = ""
             for m in d["movies"][:4]:
