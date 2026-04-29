@@ -1,307 +1,228 @@
-"""Hype2Stock – Turn movie hype into stock signals."""
-
 import streamlit as st
+import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
-import pandas as pd
 from engine import get_full_dashboard, STUDIOS
+from datetime import datetime, timedelta
 
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="Hype2Stock – Movie Hype → Stock Signals",
-    page_icon="🎬",
+    page_title="Hype2Stock | Institutional Dashboard",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS for lighter, contrasting text ─────────────────
+# ── Custom CSS ───────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Outfit:wght@700;900&display=swap');
+    
+    :root {
+        --primary: #7b2ff7;
+        --secondary: #00d2ff;
+        --accent: #ff6b9d;
+        --bg: #0f111a;
+        --card-bg: #1a1d2b;
+        --text: #f0f4ff;
+    }
 
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.stApp { background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #16213e 100%); }
+    .stApp {
+        background: linear-gradient(135deg, #0f111a 0%, #161924 100%);
+        font-family: 'Inter', sans-serif;
+    }
 
-/* Force Streamlit metric text to be bright white */
-[data-testid="stMetricValue"] { color: #ffffff !important; font-weight: 800 !important; font-size: 1.8rem !important; }
-[data-testid="stMetricLabel"] { color: #e0e6ff !important; font-weight: 600 !important; font-size: 1rem !important; }
-[data-testid="stMetricDelta"] { font-weight: 600 !important; }
+    /* Glassmorphism Sidebar */
+    [data-testid="stSidebar"] {
+        background-color: rgba(26, 29, 43, 0.8) !important;
+        backdrop-filter: blur(20px);
+        border-right: 1px solid rgba(255, 255, 255, 0.05);
+    }
 
-/* Make all general text lighter */
-.stMarkdown, .stMarkdown p, .stMarkdown li { color: #dce4f5 !important; }
-h1, h2, h3, h4 { color: #f0f4ff !important; }
+    h1, h2, h3 { font-family: 'Outfit', sans-serif; color: var(--text); }
+    
+    .main-title {
+        font-size: 3.5rem; font-weight: 900; margin-bottom: 0;
+        background: linear-gradient(90deg, #7b2ff7, #00d2ff);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    
+    .subtitle {
+        color: #8b9bb4; font-size: 1.1rem; font-weight: 400;
+        margin-top: 4px; margin-bottom: 2rem;
+    }
 
-.hero-title {
-    font-size: 3.2rem; font-weight: 900; text-align: center;
-    background: linear-gradient(135deg, #00d2ff, #7b2ff7, #ff6b9d);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    margin-bottom: 0; letter-spacing: -1px;
-}
-.hero-sub {
-    text-align: center; color: #b0bfda; font-size: 1.15rem;
-    margin-top: 4px; margin-bottom: 2rem;
-}
+    /* Unified Card Container */
+    .unified-card {
+        background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 16px; margin-bottom: 1rem; overflow: hidden;
+        backdrop-filter: blur(12px); transition: transform 0.2s;
+    }
+    .unified-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 32px rgba(123,47,247,0.2);
+        border-color: rgba(123,47,247,0.3);
+    }
+    .signal-card {
+        background: transparent; border: none; padding: 1.5rem 1.5rem 0.5rem 1.5rem;
+        margin-bottom: 0; backdrop-filter: none;
+    }
+    .signal-card:hover { transform: none; box-shadow: none; border: none; }
 
-/* Unified Card Container */
-.unified-card {
-    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 16px; margin-bottom: 1rem; overflow: hidden;
-    backdrop-filter: blur(12px); transition: transform 0.2s;
-}
-.unified-card:hover {
-    transform: translateY(-3px);
-    box-shadow: 0 8px 32px rgba(123,47,247,0.2);
-    border-color: rgba(123,47,247,0.3);
-}
-.signal-card {
-    background: transparent; border: none; padding: 1.5rem 1.5rem 0.5rem 1.5rem;
-    margin-bottom: 0; backdrop-filter: none;
-}
-.signal-card:hover { transform: none; box-shadow: none; border: none; }
+    .score-big {
+        font-size: 2.6rem; font-weight: 900; line-height: 1;
+        background: linear-gradient(135deg, #00d2ff, #7b2ff7);
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    }
+    
+    .metric-label { color: #8b9bb4; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
+    .metric-value { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+    
+    .signal-badge {
+        padding: 6px 16px; border-radius: 99px; font-weight: 800; font-size: 0.85rem;
+        text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    
+    .ticker-badge {
+        background: rgba(123, 47, 247, 0.15); color: #7b2ff7;
+        padding: 2px 10px; border-radius: 6px; font-weight: 700; font-size: 0.85rem;
+    }
+    
+    .movie-pill {
+        background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.1);
+        padding: 4px 12px; border-radius: 99px; font-size: 0.8rem; font-weight: 500;
+        color: #b0bfda; display: inline-block; margin-right: 6px; margin-bottom: 6px;
+    }
 
-.score-big {
-    font-size: 2.6rem; font-weight: 900; line-height: 1;
-    background: linear-gradient(135deg, #00d2ff, #7b2ff7);
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-}
-.ticker-badge {
-    display: inline-block; padding: 4px 12px; border-radius: 20px;
-    background: rgba(123,47,247,0.25); color: #d4b8ff;
-    font-weight: 700; font-size: 0.85rem;
-}
-.signal-badge {
-    display: inline-block; padding: 6px 16px; border-radius: 20px;
-    font-weight: 700; font-size: 0.95rem; color: #fff;
-}
-.movie-pill {
-    display: inline-block; padding: 4px 12px; border-radius: 12px;
-    background: rgba(255,255,255,0.08); color: #e0e6ff;
-    font-size: 0.82rem; margin: 3px;
-}
-.metric-label { color: #9faacc; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; }
-.metric-value { color: #ffffff; font-size: 1.3rem; font-weight: 700; }
-.pos { color: #00e676 !important; }
-.neg { color: #ff5252 !important; }
-
-.explain-box {
-    background: rgba(123,47,247,0.08); border: 1px solid rgba(123,47,247,0.2);
-    border-radius: 16px; padding: 1.5rem 2rem; margin: 1.5rem 0;
-    color: #dce4f5;
-}
-.explain-box h4 { color: #d4b8ff !important; margin-bottom: 12px; }
-.explain-box code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; color: #00d2ff; }
-
-.breakdown-bar {
-    height: 8px; border-radius: 4px; margin: 4px 0;
-}
-
-.footer {
-    text-align: center; color: #6b7ba0; padding: 2rem 0 1rem;
-    font-size: 0.8rem; border-top: 1px solid rgba(255,255,255,0.06);
-    margin-top: 3rem;
-}
-
-/* Sidebar styling */
-section[data-testid="stSidebar"] { background: rgba(10,10,26,0.95) !important; }
-section[data-testid="stSidebar"] .stMarkdown { color: #b0bfda !important; }
+    /* Breakdown Bar */
+    .breakdown-container {
+        height: 6px; background: rgba(255,255,255,0.05); border-radius: 10px;
+        overflow: hidden; display: flex; margin: 12px 0 6px 0;
+    }
+    .breakdown-segment { height: 100%; transition: width 0.5s ease; }
+    
+    .bullish { color: #00e676 !important; }
+    .bearish { color: #ff5252 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-
 # ── Sidebar ──────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## ⚙️ Settings")
-    stock_period = st.selectbox("Stock Period", ["5d", "1mo", "3mo", "6mo"], index=1)
-    movie_count = st.slider("Movies per studio", 2, 6, 5)
+    st.image("https://cdn-icons-png.flaticon.com/512/3141/3141158.png", width=60)
+    st.markdown("### Settings")
+    period = st.selectbox("Stock Period", ["1mo", "3mo", "6mo", "1y"], index=0)
+    count = st.slider("Movies per studio", 3, 10, 5)
+    
     st.markdown("---")
-    st.markdown("### 🎯 Signal Legend")
+    st.markdown("### Signal Legend")
+    st.markdown("🗳️ **BUY** – High hype, stock hasn't priced it in")
+    st.markdown("✅ **HOLD** – Hype reflected in price")
+    st.markdown("👀 **WATCH** – Moderate hype, dipping stock")
+    st.markdown("➡️ **NEUTRAL** – No clear direction")
+    st.markdown("⚠️ **CAUTION** – Weak content pipeline")
+
+# ── Header ───────────────────────────────────────────────────
+col_h1, col_h2 = st.columns([2, 1])
+with col_h1:
+    st.markdown('<div class="main-title">🎬 Hype2Stock</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Predicting Market Moves via Content Momentum Signals</div>', unsafe_allow_html=True)
+
+with st.expander("ℹ️ How it works: The Correlation Engine"):
     st.markdown("""
-    - 📈 **BUY** – High hype, stock hasn't priced it in
-    - ✅ **HOLD** – Hype reflected in price
-    - 👀 **WATCH** – Moderate hype, dipping stock
-    - ➡️ **NEUTRAL** – No clear direction
-    - ⚠️ **CAUTION** – Weak content pipeline
+    This dashboard correlates **Cultural Momentum** (from IMDb/TMDB) with **Stock Performance** (from Yahoo Finance).
+    
+    **1. Hype Score (0-100):** A 4-factor formula calculating:
+    - **Rating (35%):** Quality of content (TMDB Avg).
+    - **Popularity (35%):** Total reach and awareness.
+    - **Velocity (30%):** Rate of new interest/votes per day.
+    
+    **2. Market Signal:**
+    - We look for **Divergence**. If a studio's Hype Score is rising but their Stock Price is falling or flat, it triggers a **BUY SIGNAL** because the market has not yet "priced in" the upcoming content success.
     """)
-    st.markdown("---")
-    st.markdown("### 📐 Score Formula")
-    st.markdown("""
-    - **35%** IMDb Rating
-    - **30%** TMDB Popularity
-    - **20%** Vote Velocity (votes/day)
-    - **15%** Recency Bonus
-    """)
-    st.markdown("---")
-    st.markdown("""
-    <div style='color:#7888a8;font-size:0.75rem;'>
-    <b>Hype2Stock</b> v2.0<br>
-    Data: TMDB API + Yahoo Finance<br>
-    ⚠️ Not financial advice.
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ── Hero ─────────────────────────────────────────────────────
-st.markdown('<h1 class="hero-title">🎬 Hype2Stock</h1>', unsafe_allow_html=True)
-st.markdown('<p class="hero-sub">Turn movie hype into stock signals — cultural momentum meets market alpha</p>', unsafe_allow_html=True)
-
-
-# ── How It Works Explanation ─────────────────────────────────
-with st.expander("💡 How does movie hype predict stock movement?", expanded=False):
-    st.markdown("""
-    <div class="explain-box">
-    <h4>🔬 The Hype-to-Stock Correlation</h4>
-    <p>Studios like Disney, Netflix, and Warner Bros. derive <b>significant revenue</b> from their content pipeline.
-    A string of high-rated, popular movies creates <b>cultural momentum</b> that translates to:</p>
-    <ul>
-        <li>📺 <b>Higher subscriber growth</b> (streaming platforms)</li>
-        <li>🎟️ <b>Box office revenue beats</b> (theatrical studios)</li>
-        <li>📈 <b>Positive earnings surprises</b> → stock price movement</li>
-        <li>🗣️ <b>Brand sentiment lift</b> → analyst upgrades</li>
-    </ul>
-
-    <h4>📊 Our 4-Factor Scoring Model</h4>
-    <p>We aggregate TMDB/IMDb data into a <b>Content Momentum Score (0-100)</b>:</p>
-    <table style="width:100%; color:#dce4f5; margin:12px 0;">
-        <tr style="border-bottom:1px solid rgba(255,255,255,0.1);">
-            <td style="padding:6px;"><b>Factor</b></td>
-            <td style="padding:6px;"><b>Weight</b></td>
-            <td style="padding:6px;"><b>Why it matters</b></td>
-        </tr>
-        <tr><td style="padding:6px;">⭐ IMDb Rating</td><td style="padding:6px;"><code>35%</code></td>
-            <td style="padding:6px;">Quality signal — high ratings = audience satisfaction = repeat viewership</td></tr>
-        <tr><td style="padding:6px;">🔥 TMDB Popularity</td><td style="padding:6px;"><code>30%</code></td>
-            <td style="padding:6px;">Buzz indicator — how much people are searching/talking about the movie</td></tr>
-        <tr><td style="padding:6px;">⚡ Vote Velocity</td><td style="padding:6px;"><code>20%</code></td>
-            <td style="padding:6px;">Engagement speed — votes per day shows active audience engagement</td></tr>
-        <tr><td style="padding:6px;">🕐 Recency Bonus</td><td style="padding:6px;"><code>15%</code></td>
-            <td style="padding:6px;">New releases within 60 days have outsized impact on earnings</td></tr>
-    </table>
-
-    <h4>🎯 Signal Generation</h4>
-    <p>We compare the hype score against the studio's <b>actual stock performance</b>:</p>
-    <ul>
-        <li><b>High hype + flat stock</b> → The market hasn't priced in the content momentum → <span style="color:#00e676;">📈 BUY</span></li>
-        <li><b>High hype + rising stock</b> → Momentum already reflected → <span style="color:#29b6f6;">✅ HOLD</span></li>
-        <li><b>Low hype</b> → Weak pipeline = earnings risk → <span style="color:#ff5252;">⚠️ CAUTION</span></li>
-    </ul>
-    <p style="color:#9faacc;font-size:0.85rem;margin-top:12px;">
-    <em>This is a leading cultural indicator — hype data is available before quarterly earnings, giving investors an early read on content performance.</em>
-    </p>
-    </div>
-    """, unsafe_allow_html=True)
-
 
 # ── Load Data ────────────────────────────────────────────────
 @st.cache_data(ttl=900, show_spinner=False) # Increased to 15m to avoid rate limits
 def load_data(period, count):
     return get_full_dashboard(period, count)
 
+with st.status("🚀 Fetching real-time signals...", expanded=False) as status:
+    data = load_data(period, count)
+    status.update(label="✅ Analysis Complete", state="complete")
 
-with st.spinner("🔄 Fetching live movie hype & stock data..."):
-    data = load_data(stock_period, movie_count)
+# ── Top Metrics ──────────────────────────────────────────────
+m1, m2, m3, m4 = st.columns(4)
+avg_hype = sum(d["hype"]["score"] for d in data) / len(data)
+bullish = len([d for d in data if "BUY" in d["signal"]["signal"]])
+top_studio = data[0]["studio"]
 
-
-# ── Top Metrics Row ──────────────────────────────────────────
-col1, col2, col3, col4 = st.columns(4)
-avg_hype = sum(d["hype"]["score"] for d in data) / len(data) if data else 0
-bullish = sum(1 for d in data if d["signal"]["signal"] in ["📈 BUY SIGNAL", "✅ HOLD"])
-caution = sum(1 for d in data if "CAUTION" in d["signal"]["signal"])
-top = data[0]["studio"] if data else "N/A"
-
-col1.metric("🎯 Avg Hype Score", f"{avg_hype:.1f} / 100")
-col2.metric("📈 Bullish Studios", f"{bullish} / {len(data)}")
-col3.metric("⚠️ Caution Alerts", caution)
-col4.metric("🏆 Top Momentum", top)
+with m1:
+    st.markdown(f'<div class="metric-label">🎯 Avg Hype Score</div><div class="score-big" style="font-size:2.4rem;">{avg_hype:.1f}/100</div>', unsafe_allow_html=True)
+with m2:
+    st.markdown(f'<div class="metric-label">📈 Bullish Studios</div><div class="score-big" style="font-size:2.4rem;">{bullish}/{len(data)}</div>', unsafe_allow_html=True)
+with m3:
+    st.markdown(f'<div class="metric-label">🏆 Top Momentum</div><div class="score-big" style="font-size:2.4rem;">{top_studio}</div>', unsafe_allow_html=True)
+with m4:
+    st.markdown(f'<div class="metric-label">⚡ Signal Status</div><div class="score-big" style="font-size:2.4rem;">{"Active" if avg_hype > 30 else "Cold"}</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-
-# ── Hype Leaderboard Chart ───────────────────────────────────
-st.markdown("### 📊 Content Momentum Leaderboard")
-
-studios_sorted = sorted(data, key=lambda x: x["hype"]["score"])
-colors = ["#00e676" if d["hype"]["score"] >= 60 else "#ffd740" if d["hype"]["score"] >= 40 else "#ff5252" for d in studios_sorted]
-
-fig_bar = go.Figure()
-fig_bar.add_trace(go.Bar(
-    y=[f'{d["logo"]} {d["studio"]}' for d in studios_sorted],
-    x=[d["hype"]["score"] for d in studios_sorted],
-    orientation="h",
-    marker=dict(color=colors, line=dict(width=0)),
-    text=[f'{d["hype"]["score"]}' for d in studios_sorted],
-    textposition="outside",
-    textfont=dict(color="#ffffff", size=13, family="Inter"),
-))
-fig_bar.update_layout(
-    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#dce4f5", family="Inter"),
-    xaxis=dict(range=[0, 110], showgrid=False, title="Hype Score", title_font=dict(color="#9faacc")),
-    yaxis=dict(showgrid=False, tickfont=dict(size=13)),
-    height=350, margin=dict(l=10, r=50, t=10, b=40),
-    showlegend=False,
-)
+# ── Leaderboard Bar Chart ────────────────────────────────────
+df_leader = pd.DataFrame([{"Studio": d["studio"], "Hype": d["hype"]["score"]} for d in data])
+fig_bar = px.bar(df_leader, x="Hype", y="Studio", orientation='h', 
+                 color="Hype", color_continuous_scale="Viridis",
+                 template="plotly_dark")
+fig_bar.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", 
+                      margin=dict(l=0, r=0, t=0, b=0), height=300,
+                      coloraxis_showscale=False)
 st.plotly_chart(fig_bar, use_container_width=True)
 
-
-# ── Studio Signal Cards ─────────────────────────────────────
+# ── Signal Cards ─────────────────────────────────────────────
 st.markdown("### 🎬 Studio Breakdown & Signals")
 
 for i in range(0, len(data), 2):
     cols = st.columns(2)
     for j, col in enumerate(cols):
-        idx = i + j
-        if idx >= len(data):
-            break
-        d = data[idx]
-        with col:
-            sig_color = d["signal"]["color"]
-            stock_class = "pos" if d["stock"]["change_pct"] >= 0 else "neg"
-            stock_arrow = "▲" if d["stock"]["change_pct"] >= 0 else "▼"
-            stock_display = f"${d['stock']['price']}" if d["stock"]["price"] > 0 else "N/A"
-            change_display = f"{stock_arrow} {d['stock']['change_pct']}%" if d["stock"]["price"] > 0 else "—"
+        if i + j < len(data):
+            d = data[i + j]
+            with col:
+                sig_color = d["signal"]["color"]
+                stock_display = f"${d['stock']['price']}" if d['stock']['price'] > 0 else "N/A"
+                change_pct = d["stock"]["change_pct"]
+                change_display = f"{'+' if change_pct >= 0 else ''}{change_pct:.2f}%" if d['stock']['price'] > 0 else "—"
+                stock_class = "bullish" if change_pct >= 0 else "bearish"
+                
+                bd = d["hype"]["breakdown"]
+                breakdown_html = ""
+                if bd:
+                    w_rat = int(bd['rating'])
+                    w_pop = int(bd['popularity'])
+                    w_vel = int(bd['velocity'])
+                    breakdown_html = (
+                        f'<div class="breakdown-container">'
+                        f'<div class="breakdown-segment" style="width:{w_rat}%; background:#7b2ff7;"></div>'
+                        f'<div class="breakdown-segment" style="width:{w_pop}%; background:#00d2ff;"></div>'
+                        f'<div class="breakdown-segment" style="width:{w_vel}%; background:#ffd740;"></div>'
+                        f'</div>'
+                        f'<div style="display:flex;gap:12px;font-size:0.7rem;color:#8b9bb4;margin-bottom:8px;">'
+                        f'<span><span style="color:#7b2ff7;">&#9679;</span> Rating {w_rat}</span>'
+                        f'<span><span style="color:#00d2ff;">&#9679;</span> Pop {w_pop}</span>'
+                        f'<span><span style="color:#ffd740;">&#9679;</span> Vel {w_vel}</span>'
+                        f'</div>'
+                    )
 
-            # Score breakdown bar — pre-compute rounded values
-            bd = d["hype"].get("breakdown", {})
-            breakdown_html = ""
-            if bd:
-                total = max(d["hype"]["score"], 1)
-                w_rat = round(bd.get('rating', 0) / total * 100)
-                w_pop = round(bd.get('popularity', 0) / total * 100)
-                w_vel = round(bd.get('velocity', 0) / total * 100)
-                w_rec = round(bd.get('recency', 0) / total * 100)
-                v_rat = bd.get('rating', 0)
-                v_pop = bd.get('popularity', 0)
-                v_vel = bd.get('velocity', 0)
-                v_rec = bd.get('recency', 0)
-                breakdown_html = (
-                    '<div style="margin:8px 0 4px;">'
-                    '<div style="display:flex;gap:2px;height:8px;border-radius:4px;overflow:hidden;">'
-                    f'<div style="width:{w_rat}%;background:#7b2ff7;"></div>'
-                    f'<div style="width:{w_pop}%;background:#00d2ff;"></div>'
-                    f'<div style="width:{w_vel}%;background:#ffd740;"></div>'
-                    f'<div style="width:{w_rec}%;background:#ff6b9d;"></div>'
-                    '</div>'
-                    '<div style="display:flex;gap:12px;margin-top:4px;font-size:0.7rem;color:#9faacc;">'
-                    f'<span><span style="color:#7b2ff7;">&#9679;</span> Rating {v_rat}</span>'
-                    f'<span><span style="color:#00d2ff;">&#9679;</span> Pop {v_pop}</span>'
-                    f'<span><span style="color:#ffd740;">&#9679;</span> Vel {v_vel}</span>'
-                    f'<span><span style="color:#ff6b9d;">&#9679;</span> New {v_rec}</span>'
-                    '</div></div>'
-                )
+                movie_pills = ""
+                for m in d["movies"][:4]:
+                    movie_pills += f'<span class="movie-pill">🎥 {m["title"][:28]} · ⭐{m["rating"]}</span> '
 
-            movie_pills = ""
-            for m in d["movies"][:4]:
-                movie_pills += f'<span class="movie-pill">🎥 {m["title"][:28]} · ⭐{m["rating"]}</span> '
+                # Convert hex signal color to rgba for transparency
+                r_sig, g_sig, b_sig = int(sig_color[1:3], 16), int(sig_color[3:5], 16), int(sig_color[5:7], 16)
+                
+                # Use conditional strings to avoid empty divs taking up space
+                breakdown_section = f'<div style="margin:12px 0;">{breakdown_html}</div>' if breakdown_html else ""
+                movie_section = f'<div style="margin:12px 0;">{movie_pills}</div>' if movie_pills else ""
 
-            # Convert hex signal color to rgba for transparency
-            r_sig, g_sig, b_sig = int(sig_color[1:3], 16), int(sig_color[3:5], 16), int(sig_color[5:7], 16)
-            
-            # Use conditional strings to avoid empty divs taking up space
-            breakdown_section = f'<div style="margin:12px 0;">{breakdown_html}</div>' if breakdown_html else ""
-            movie_section = f'<div style="margin:12px 0;">{movie_pills}</div>' if movie_pills else ""
-
-            # Use a non-indented string to prevent markdown from treating it as a code block
-            card_html = f"""<div class="signal-card">
+                # Use a non-indented string to prevent markdown from treating it as a code block
+                card_html = f"""<div class="signal-card">
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
     <div>
         <span style="font-size:1.8rem;">{d["logo"]}</span>
@@ -336,112 +257,80 @@ for i in range(0, len(data), 2):
 {movie_section}
 <div style="color:#b0bfda;font-size:0.85rem;font-style:italic;margin-top:8px;">💡 {d["signal"]["reason"]}</div>
 </div>"""
-            # Unified Container for Card + Graph
-            st.markdown('<div class="unified-card">', unsafe_allow_html=True)
-            
-            # 1. Top Card (HTML)
-            st.markdown(card_html, unsafe_allow_html=True)
-            
-            # 2. Bottom Graph (Plotly or Fallback)
-            if not d["stock"]["hist"].empty:
-                fig_mini = go.Figure()
-                hist = d["stock"]["hist"]
-                lc = "#00e676" if d["stock"]["change_pct"] >= 0 else "#ff5252"
-                r, g, b = int(lc[1:3],16), int(lc[3:5],16), int(lc[5:7],16)
-                fig_mini.add_trace(go.Scatter(
-                    x=hist.index, y=hist["Close"], mode="lines", fill="tozeroy",
-                    line=dict(color=lc, width=2.5),
-                    fillcolor=f"rgba({r},{g},{b},0.1)",
-                ))
-                fig_mini.update_layout(
-                    plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=5, b=0), height=130,
-                    xaxis=dict(visible=False), yaxis=dict(visible=False), showlegend=False,
-                )
-                st.plotly_chart(fig_mini, use_container_width=True, key=f"chart_{d['ticker']}")
-            else:
-                st.markdown(f"""
-                <div style="height:100px; display:flex; align-items:center; justify-content:center; 
-                            background:rgba(255,255,255,0.01); color:#6b7ba0; font-size:0.8rem; border-top:1px solid rgba(255,255,255,0.05);">
-                    📈 Stock data currently unavailable for {d['ticker']}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-
+                
+                # Unified Container for Card + Graph
+                st.markdown('<div class="unified-card">', unsafe_allow_html=True)
+                
+                # 1. Top Card (HTML)
+                st.markdown(card_html, unsafe_allow_html=True)
+                
+                # 2. Bottom Graph (Plotly or Fallback)
+                if not d["stock"]["hist"].empty:
+                    fig_mini = go.Figure()
+                    hist = d["stock"]["hist"]
+                    lc = "#00e676" if d["stock"]["change_pct"] >= 0 else "#ff5252"
+                    r, g, b = int(lc[1:3],16), int(lc[3:5],16), int(lc[5:7],16)
+                    
+                    # 2.1 Historical Data
+                    fig_mini.add_trace(go.Scatter(
+                        x=hist.index, y=hist["Close"], mode="lines", fill="tozeroy",
+                        line=dict(color=lc, width=2.5),
+                        fillcolor=f"rgba({r},{g},{b},0.1)",
+                        name="History"
+                    ))
+                    
+                    # 2.2 ML Forecast (Dashed Line)
+                    if "forecast" in d["stock"] and len(d["stock"]["forecast"]) > 0:
+                        future_dates = [hist.index[-1] + timedelta(days=i) for i in range(1, 6)]
+                        fig_mini.add_trace(go.Scatter(
+                            x=future_dates, y=d["stock"]["forecast"], mode="lines",
+                            line=dict(color=lc, width=2, dash="dash"),
+                            name="ML Projection"
+                        ))
+                    
+                    fig_mini.update_layout(
+                        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
+                        margin=dict(l=0, r=0, t=5, b=0), height=130,
+                        xaxis=dict(visible=False), yaxis=dict(visible=False), showlegend=False,
+                    )
+                    st.plotly_chart(fig_mini, use_container_width=True, key=f"chart_{d['ticker']}_{i}_{j}")
+                else:
+                    st.markdown(f"""
+                    <div style="height:100px; display:flex; align-items:center; justify-content:center; 
+                                background:rgba(255,255,255,0.01); color:#6b7ba0; font-size:0.8rem; border-top:1px solid rgba(255,255,255,0.05);">
+                        📈 Stock data currently unavailable for {d['ticker']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                st.markdown('</div>', unsafe_allow_html=True)
 
 # ── Hype vs Stock Scatter ────────────────────────────────────
-st.markdown("---")
-st.markdown("### 🔗 Hype Score vs Stock Performance")
-st.markdown("*This scatter plot reveals which studios have content momentum that the market hasn't priced in yet.*")
+st.markdown("### 📊 Correlation: Content Hype vs Market Performance")
+scatter_data = []
+for d in data:
+    if d["stock"]["price"] > 0:
+        scatter_data.append({
+            "Studio": d["studio"],
+            "Hype Score": d["hype"]["score"],
+            "Stock Δ %": d["stock"]["change_pct"],
+            "Signal": d["signal"]["signal"]
+        })
 
-scatter_df = pd.DataFrame([{
-    "Studio": f'{d["logo"]} {d["studio"]}',
-    "Hype Score": d["hype"]["score"],
-    "Stock Change %": d["stock"]["change_pct"],
-    "Signal": d["signal"]["signal"],
-} for d in data if d["stock"]["price"] > 0])
-
+scatter_df = pd.DataFrame(scatter_data)
 if not scatter_df.empty:
-    fig_s = go.Figure()
-    for _, row in scatter_df.iterrows():
-        clr = "#00e676" if row["Hype Score"] >= 60 else "#ffd740" if row["Hype Score"] >= 40 else "#ff5252"
-        fig_s.add_trace(go.Scatter(
-            x=[row["Hype Score"]], y=[row["Stock Change %"]],
-            mode="markers+text", text=[row["Studio"]], textposition="top center",
-            marker=dict(size=18, color=clr, line=dict(width=2, color="rgba(255,255,255,0.12)")),
-            textfont=dict(color="#e0e6ff", size=11), showlegend=False,
-        ))
-    fig_s.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.15)")
-    fig_s.add_vline(x=50, line_dash="dash", line_color="rgba(255,255,255,0.15)")
-    fig_s.add_annotation(x=80, y=scatter_df["Stock Change %"].max()*0.9, text="🚀 Undervalued Hype",
-                         showarrow=False, font=dict(color="#00e676", size=11))
-    fig_s.add_annotation(x=20, y=scatter_df["Stock Change %"].min()*0.9, text="💀 Weak Pipeline",
-                         showarrow=False, font=dict(color="#ff5252", size=11))
-    fig_s.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#dce4f5", family="Inter"),
-        xaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.04)", title="Content Momentum Score",
-                   title_font=dict(color="#9faacc")),
-        yaxis=dict(showgrid=True, gridcolor="rgba(255,255,255,0.04)", title="Stock Price Change %",
-                   title_font=dict(color="#9faacc")),
-        height=420, margin=dict(l=10, r=10, t=10, b=40), showlegend=False,
-    )
-    st.plotly_chart(fig_s, use_container_width=True)
+    fig_scatter = px.scatter(scatter_df, x="Hype Score", y="Stock Δ %", 
+                             text="Studio", color="Signal", size=[20]*len(scatter_df),
+                             color_discrete_map={
+                                 "📈 BUY SIGNAL": "#00e676",
+                                 "✅ HOLD": "#29b6f6",
+                                 "👀 WATCH": "#ffd740",
+                                 "➡️ NEUTRAL": "#78909c",
+                                 "⚠️ CAUTION": "#ff5252"
+                             },
+                             template="plotly_dark")
+    fig_scatter.add_hline(y=0, line_dash="dash", line_color="rgba(255,255,255,0.2)")
+    fig_scatter.add_vline(x=50, line_dash="dash", line_color="rgba(255,255,255,0.2)")
+    fig_scatter.update_layout(plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)", height=500)
+    st.plotly_chart(fig_scatter, use_container_width=True)
 else:
     st.info("Stock data unavailable for scatter plot — market may be closed.")
-
-
-# ── Summary Table ────────────────────────────────────────────
-st.markdown("---")
-st.markdown("### 📋 Full Signal Summary")
-
-table_df = pd.DataFrame([{
-    "Studio": f'{d["logo"]} {d["studio"]}',
-    "Ticker": d["ticker"],
-    "Hype Score": d["hype"]["score"],
-    "Avg Rating": d["hype"]["avg_rating"],
-    "Popularity": d["hype"]["avg_popularity"],
-    "Votes/Day": d["hype"]["vote_velocity"],
-    "Stock $": d["stock"]["price"],
-    "Stock Δ%": d["stock"]["change_pct"],
-    "Signal": d["signal"]["signal"],
-    "Grade": d["hype"]["grade"],
-} for d in data])
-
-st.dataframe(
-    table_df, use_container_width=True, hide_index=True,
-    column_config={
-        "Hype Score": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%d"),
-        "Stock Δ%": st.column_config.NumberColumn(format="%.2f%%"),
-    },
-)
-
-
-# ── Footer ───────────────────────────────────────────────────
-st.markdown("""
-<div class="footer">
-    🎬 <b>Hype2Stock</b> v2.0 — Cultural momentum meets market alpha<br>
-    Data: TMDB API + Yahoo Finance · Scores update every 10 min · Not financial advice
-</div>
-""", unsafe_allow_html=True)

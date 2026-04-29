@@ -186,9 +186,23 @@ class StockMarket:
                 prev_price = float(hist["Close"].iloc[0])
                 change_pct = rt_data["change_pct"] if not rt_data["error"] else ((current_price - prev_price) / prev_price) * 100
                 
+                # ML TREND FORECAST (Projecting next 5 days)
+                y = hist["Close"].values
+                x = np.arange(len(y))
+                z = np.polyfit(x, y, 1) # Linear trend
+                p = np.poly1d(z)
+                
+                # Project next 5 points
+                future_x = np.arange(len(y), len(y) + 5)
+                forecast = p(future_x)
+                
                 return {
-                    "price": round(float(current_price), 2), "change_pct": round(float(change_pct), 2),
-                    "hist": hist, "error": False, "source": "Live"
+                    "price": round(float(current_price), 2),
+                    "change_pct": round(float(change_pct), 2),
+                    "hist": hist,
+                    "forecast": forecast, # New ML Field
+                    "error": False,
+                    "source": "Live"
                 }
         except Exception as e:
             print(f"Fetch error for {ticker}: {e}")
