@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 const { STUDIO_MAP, TMDB_STUDIO_IDS } = require('./studioMap');
+const { scoreStudio } = require('../signalEngine');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -201,6 +202,36 @@ app.get('/api/stock/all', async (req, res) => {
   } catch (error) {
     console.error("Stock All Error:", error.message);
     res.status(500).json({ error: "Failed to fetch all stock data" });
+  }
+});
+
+app.get('/api/signals/all', async (req, res) => {
+  try {
+    const studios = Object.keys(STUDIO_MAP);
+    const results = await Promise.all(studios.map(async (studioName) => {
+      const ticker = STUDIO_MAP[studioName];
+      const [movies, stock] = await Promise.all([
+        getMoviesForStudio(studioName),
+        getStockForTicker(ticker)
+      ]);
+      
+      // Map changePercent to momentum for the signal engine
+      const stockWithMomentum = { ...stock, momentum: stock.changePercent };
+      const signal = scoreStudio(movies, stockWithMomentum);
+      
+      return {
+        studio: studioName,
+        ticker,
+        movies,
+        stock: stockWithMomentum,
+        signal
+      };
+    }));
+    
+    res.json(results);
+  } catch (error) {
+    console.error("Signals All Error:", error.message);
+    res.status(500).json({ error: "Failed to generate all signals" });
   }
 });
 
