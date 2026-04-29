@@ -8,6 +8,12 @@ from dotenv import load_dotenv
 import os
 import time
 
+# Industrial Grade yfinance config
+# Using a custom User-Agent to prevent rate-limiting blocks
+import requests as req
+session = req.Session()
+session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'})
+
 load_dotenv()
 TMDB_KEY = os.getenv("TMDB_API_KEY", "f1714c0718b4754d6ad44c1c2976e8b3")
 BASE = "https://api.themoviedb.org/3"
@@ -149,14 +155,14 @@ class StockMarket:
         rt_data = cls.get_realtime_quote(ticker)
         
         try:
-            # Use Ticker.history as it's more stable for single symbols in 0.2.x
-            tk = yf.Ticker(ticker)
+            # Use Ticker.history with custom session to bypass rate limits
+            tk = yf.Ticker(ticker, session=session)
             hist = tk.history(period=period)
             
             # Robust Ticker Fallback
             if hist.empty:
                 alt = ticker.replace("-", ".") if "-" in ticker else ticker.replace(".", "-")
-                tk = yf.Ticker(alt)
+                tk = yf.Ticker(alt, session=session)
                 hist = tk.history(period=period)
 
             if not hist.empty:
