@@ -42,16 +42,22 @@ h1, h2, h3, h4 { color: #f0f4ff !important; }
     margin-top: 4px; margin-bottom: 2rem;
 }
 
-.signal-card {
+/* Unified Card Container */
+.unified-card {
     background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 16px; padding: 1.5rem; margin-bottom: 1rem;
-    backdrop-filter: blur(12px); transition: transform 0.2s, box-shadow 0.2s;
+    border-radius: 16px; margin-bottom: 1rem; overflow: hidden;
+    backdrop-filter: blur(12px); transition: transform 0.2s;
 }
-.signal-card:hover {
+.unified-card:hover {
     transform: translateY(-3px);
     box-shadow: 0 8px 32px rgba(123,47,247,0.2);
     border-color: rgba(123,47,247,0.3);
 }
+.signal-card {
+    background: transparent; border: none; padding: 1.5rem 1.5rem 0.5rem 1.5rem;
+    margin-bottom: 0; backdrop-filter: none;
+}
+.signal-card:hover { transform: none; box-shadow: none; border: none; }
 
 .score-big {
     font-size: 2.6rem; font-weight: 900; line-height: 1;
@@ -330,9 +336,13 @@ for i in range(0, len(data), 2):
 {movie_section}
 <div style="color:#b0bfda;font-size:0.85rem;font-style:italic;margin-top:8px;">💡 {d["signal"]["reason"]}</div>
 </div>"""
+            # Unified Container for Card + Graph
+            st.markdown('<div class="unified-card">', unsafe_allow_html=True)
+            
+            # 1. Top Card (HTML)
             st.markdown(card_html, unsafe_allow_html=True)
-
-            # Mini stock chart
+            
+            # 2. Bottom Graph (Plotly or Fallback)
             if not d["stock"]["hist"].empty:
                 fig_mini = go.Figure()
                 hist = d["stock"]["hist"]
@@ -345,18 +355,19 @@ for i in range(0, len(data), 2):
                 ))
                 fig_mini.update_layout(
                     plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)",
-                    margin=dict(l=0, r=0, t=5, b=0), height=120,
+                    margin=dict(l=0, r=0, t=5, b=0), height=130,
                     xaxis=dict(visible=False), yaxis=dict(visible=False), showlegend=False,
                 )
                 st.plotly_chart(fig_mini, use_container_width=True, key=f"chart_{d['ticker']}")
             else:
                 st.markdown(f"""
-                <div style="height:120px; display:flex; align-items:center; justify-content:center; 
-                            background:rgba(255,255,255,0.02); border-radius:8px; border:1px dashed rgba(255,255,255,0.1);
-                            color:#6b7ba0; font-size:0.8rem;">
+                <div style="height:100px; display:flex; align-items:center; justify-content:center; 
+                            background:rgba(255,255,255,0.01); color:#6b7ba0; font-size:0.8rem; border-top:1px solid rgba(255,255,255,0.05);">
                     📈 Stock data currently unavailable for {d['ticker']}
                 </div>
                 """, unsafe_allow_html=True)
+            
+            st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ── Hype vs Stock Scatter ────────────────────────────────────

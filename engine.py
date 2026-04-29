@@ -26,17 +26,19 @@ STUDIOS = {
 
 
 def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
-    """Fetch the most recent movies for a studio from TMDB."""
+    """Fetch recent and UPCOMING movies for a studio from TMDB."""
     url = f"{BASE}/discover/movie"
-    today = datetime.now().strftime("%Y-%m-%d")
-    year_ago = (datetime.now() - timedelta(days=548)).strftime("%Y-%m-%d")  # ~18 months back
+    # Look from 12 months ago to 12 months into the future
+    start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    end_date = (datetime.now() + timedelta(days=365)).strftime("%Y-%m-%d")
+    
     params = {
         "api_key": TMDB_KEY,
         "with_companies": tmdb_id,
         "sort_by": "popularity.desc",
-        "primary_release_date.lte": today,
-        "primary_release_date.gte": year_ago,
-        "vote_count.gte": 5,
+        "primary_release_date.gte": start_date,
+        "primary_release_date.lte": end_date,
+        "vote_count.gte": 0, # Include upcoming/unvoted movies
         "page": 1,
     }
     try:
