@@ -103,6 +103,7 @@ st.markdown("""
     
     .bullish { color: #00e676 !important; }
     .bearish { color: #ff5252 !important; }
+    .elite { color: #00d2ff !important; font-weight: 900; text-shadow: 0 0 10px rgba(0,210,255,0.5); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -115,6 +116,7 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("### Signal Legend")
+    st.markdown("💎 **ELITE** – Extreme momentum across all factors")
     st.markdown("🗳️ **BUY** – High hype, stock hasn't priced it in")
     st.markdown("✅ **HOLD** – Hype reflected in price")
     st.markdown("👀 **WATCH** – Moderate hype, dipping stock")
@@ -132,9 +134,10 @@ with st.expander("ℹ️ How it works: The Correlation Engine"):
     This dashboard correlates **Cultural Momentum** (from IMDb/TMDB) with **Stock Performance** (from Yahoo Finance).
     
     **1. Hype Score (0-100):** A 4-factor formula calculating:
-    - **Rating (35%):** Quality of content (TMDB Avg).
-    - **Popularity (35%):** Total reach and awareness.
-    - **Velocity (30%):** Rate of new interest/votes per day.
+    - **Rating (25%):** Quality of content (TMDB Avg).
+    - **Popularity (25%):** Total reach and awareness.
+    - **Velocity (25%):** Rate of new interest/votes, weighted by release proximity.
+    - **Sentiment (25%):** NLP analysis (VADER) of movie overviews and plot descriptions.
     
     **2. Market Signal:**
     - We look for **Divergence**. If a studio's Hype Score is rising but their Stock Price is falling or flat, it triggers a **BUY SIGNAL** because the market has not yet "priced in" the upcoming content success.
@@ -153,7 +156,7 @@ with st.container():
     with c1:
         st.markdown(f"📡 **Data Source:** `Industrial Hybrid (RT)`")
     with c2:
-        st.markdown(f"🤖 **Forecasting:** `Active (Linear Projection)`")
+        st.markdown(f"🤖 **Forecasting:** `Ridge Regression (Stable)`")
     with c3:
         st.markdown(f"⏱️ **Last Sync:** `{datetime.now().strftime('%H:%M:%S')}`")
     
@@ -207,16 +210,19 @@ for i in range(0, len(data), 2):
                     w_rat = int(bd['rating'])
                     w_pop = int(bd['popularity'])
                     w_vel = int(bd['velocity'])
+                    w_sen = int(bd['sentiment'])
                     breakdown_html = (
                         f'<div class="breakdown-container">'
                         f'<div class="breakdown-segment" style="width:{w_rat}%; background:#7b2ff7;"></div>'
                         f'<div class="breakdown-segment" style="width:{w_pop}%; background:#00d2ff;"></div>'
                         f'<div class="breakdown-segment" style="width:{w_vel}%; background:#ffd740;"></div>'
+                        f'<div class="breakdown-segment" style="width:{w_sen}%; background:#ff6b9d;"></div>'
                         f'</div>'
                         f'<div style="display:flex;gap:12px;font-size:0.7rem;color:#8b9bb4;margin-bottom:8px;">'
                         f'<span><span style="color:#7b2ff7;">&#9679;</span> Rating {w_rat}</span>'
                         f'<span><span style="color:#00d2ff;">&#9679;</span> Pop {w_pop}</span>'
                         f'<span><span style="color:#ffd740;">&#9679;</span> Vel {w_vel}</span>'
+                        f'<span><span style="color:#ff6b9d;">&#9679;</span> Sentiment {w_sen}</span>'
                         f'</div>'
                     )
 
@@ -257,6 +263,10 @@ for i in range(0, len(data), 2):
     <div>
         <div class="metric-label">Avg Rating</div>
         <div class="metric-value">⭐ {d["hype"]["avg_rating"]}</div>
+    </div>
+    <div>
+        <div class="metric-label">Sentiment</div>
+        <div class="metric-value">🎭 {d["hype"]["sentiment"]}</div>
     </div>
     <div>
         <div class="metric-label">Votes/Day</div>

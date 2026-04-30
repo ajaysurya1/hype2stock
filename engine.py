@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import os
 import time
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from sklearn.linear_model import Ridge
 
 # Industrial Grade yfinance config
 import requests as req
@@ -17,6 +19,8 @@ session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)
 load_dotenv()
 TMDB_KEY = os.getenv("TMDB_API_KEY", "f1714c0718b4754d6ad44c1c2976e8b3")
 BASE = "https://api.themoviedb.org/3"
+
+analyzer = SentimentIntensityAnalyzer()
 
 STUDIOS = {
     "Walt Disney":      {"tmdb_id": 2,     "ticker": "DIS",   "logo": "🏰"},
@@ -69,7 +73,16 @@ def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
             except: pass
         
         vote_count = m.get("vote_count", 0)
-        velocity = round(vote_count / max(abs(days_out), 1), 2)
+        # Anticipation factor: Upcoming movies or those in theaters (last 30 days) get higher velocity weight
+        is_upcoming = days_out <= 0
+        is_recent = 0 < days_out <= 30
+        weight = 1.5 if (is_upcoming or is_recent) else 1.0
+        
+        velocity = round((vote_count / max(abs(days_out), 1)) * weight, 2)
+        
+        # Sentiment Analysis
+        overview = m.get("overview", "")
+        sentiment = analyzer.polarity_scores(overview)["compound"] if overview else 0
 
         movies.append({
             "title": m.get("title", "Unknown"),
@@ -78,9 +91,11 @@ def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
             "popularity": m.get("popularity", 0),
             "release_date": rel_date or "N/A",
             "poster": f"https://image.tmdb.org/t/p/w300{m['poster_path']}" if m.get("poster_path") else None,
-            "overview": m.get("overview", "")[:200],
+            "overview": overview[:200],
             "days_since_release": days_out,
             "vote_velocity": velocity,
+            "sentiment": sentiment,
+            "is_upcoming": is_upcoming
         })
     return movies
 
@@ -93,17 +108,21 @@ def calc_hype_score(movies: list[dict]) -> dict:
     avg_rating = sum(m["rating"] for m in movies) / len(movies)
     avg_pop = sum(m["popularity"] for m in movies) / len(movies)
     avg_vel = sum(m["vote_velocity"] for m in movies) / len(movies)
+    avg_sent = sum(m["sentiment"] for m in movies) / len(movies)
+    
+    # 4-Factor Formula (Quality, Popularity, Velocity, Sentiment)
+    rating_score = (avg_rating / 10) * 25
+    pop_score = min(avg_pop / 100, 1) * 25
+    vel_score = min(avg_vel / 50, 1) * 25
+    sent_score = ((avg_sent + 1) / 2) * 25 # Scale VADER (-1 to 1) to (0 to 25)
 
-    rating_score = (avg_rating / 10) * 35
-    pop_score = min(avg_pop / 100, 1) * 35
-    vel_score = min(avg_vel / 50, 1) * 30
-
-    score = round(rating_score + pop_score + vel_score, 1)
+    score = round(rating_score + pop_score + vel_score + sent_score, 1)
     score = min(score, 100)
 
-    if score >= 65: grade = "🟢 Strong Bullish"
-    elif score >= 45: grade = "🟡 Moderate Bullish"
-    elif score >= 25: grade = "🟠 Neutral"
+    if score >= 70: grade = "💎 Elite Momentum"
+    elif score >= 50: grade = "🟢 Strong Bullish"
+    elif score >= 35: grade = "🟡 Moderate Bullish"
+    elif score >= 20: grade = "🟠 Neutral"
     else: grade = "🔴 Bearish Warning"
 
     return {
@@ -111,12 +130,13 @@ def calc_hype_score(movies: list[dict]) -> dict:
         "avg_rating": round(avg_rating, 2),
         "avg_popularity": round(avg_pop, 1),
         "vote_velocity": round(avg_vel, 2),
+        "sentiment": round(avg_sent, 2),
         "grade": grade,
         "breakdown": {
             "rating": round(rating_score, 1),
             "popularity": round(pop_score, 1),
             "velocity": round(vel_score, 1),
-            "recency": 0,
+            "sentiment": round(sent_score, 1),
         }
     }
 
@@ -192,13 +212,15 @@ class StockMarket:
                 
                 # ML TREND FORECAST (Projecting next 5 days)
                 y = hist["Close"].values
-                x = np.arange(len(y))
-                z = np.polyfit(x, y, 1) # Linear trend
-                p = np.poly1d(z)
+                x = np.arange(len(y)).reshape(-1, 1)
+                
+                # Use Ridge Regression for more stable, regularized trend lines
+                model = Ridge(alpha=1.0)
+                model.fit(x, y)
                 
                 # Project next 5 points
-                future_x = np.arange(len(y), len(y) + 5)
-                forecast = p(future_x)
+                future_x = np.arange(len(y), len(y) + 5).reshape(-1, 1)
+                forecast = model.predict(future_x)
                 
                 return {
                     "price": round(float(current_price), 2),
