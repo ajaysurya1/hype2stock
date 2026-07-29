@@ -103,7 +103,8 @@ def fetch_studio_movies(tmdb_id: int, count: int = 5) -> list[dict]:
 def calc_hype_score(movies: list[dict]) -> dict:
     if not movies:
         return {"score": 0, "avg_rating": 0, "avg_popularity": 0,
-                "vote_velocity": 0, "grade": "N/A", "breakdown": {}}
+                "vote_velocity": 0, "sentiment": 0, "grade": "N/A",
+                "breakdown": {"rating": 0, "popularity": 0, "velocity": 0, "sentiment": 0}}
 
     avg_rating = sum(m["rating"] for m in movies) / len(movies)
     avg_pop = sum(m["popularity"] for m in movies) / len(movies)

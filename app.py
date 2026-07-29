@@ -250,7 +250,7 @@ for i in range(0, len(data), 2):
 <div style="display:flex;gap:28px;margin-bottom:8px;flex-wrap:wrap;">
     <div>
         <div class="metric-label">Hype Score</div>
-        <div class="score-big">{d["hype"]["score"]}</div>
+        <div class="score-big">{d["hype"].get("score", 0)}</div>
     </div>
     <div>
         <div class="metric-label">Stock Price</div>
@@ -262,15 +262,15 @@ for i in range(0, len(data), 2):
     </div>
     <div>
         <div class="metric-label">Avg Rating</div>
-        <div class="metric-value">⭐ {d["hype"]["avg_rating"]}</div>
+        <div class="metric-value">⭐ {d["hype"].get("avg_rating", 0)}</div>
     </div>
     <div>
         <div class="metric-label">Sentiment</div>
-        <div class="metric-value">🎭 {d["hype"]["sentiment"]}</div>
+        <div class="metric-value">🎭 {d["hype"].get("sentiment", 0)}</div>
     </div>
     <div>
         <div class="metric-label">Votes/Day</div>
-        <div class="metric-value">⚡ {d["hype"]["vote_velocity"]}</div>
+        <div class="metric-value">⚡ {d["hype"].get("vote_velocity", 0)}</div>
     </div>
 </div>
 {breakdown_section}
